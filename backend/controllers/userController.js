@@ -3,28 +3,18 @@ const { sendResetEmail } = require('../utils/emailUtils');
 const Admin = require('../models/admin');
 const Student = require('../models/student');
 const Instructor = require('../models/instructor');
+const User= require('../models/user');
 
-function generateToken(user) {
-    return jwt.sign({ id: user._id, email: user.email, role: user.role, firstname: user.firstname, lastname: user.lastname, phone: user.phone, email: user.email }, '12345', { expiresIn: '1440h' });
-}
+
 
 async function register(req, res) {
     try {
-        const { firstname, lastname, phone, email, password, role, status } = req.body;
+        const {phone,email, password, role, status } = req.body;
 
         let user;
 
-        // Check the role
-        if (role === 'student') {
-            // Create a new student instance
-            user = new Student({ firstname, lastname, phone, email, password, role, status });
-        } else if (role === 'instructor') {
-            // Create a new instructor instance
-            user = new Instructor({ firstname, lastname, phone, email, password, role, status });
-        } else {
-            // Create a new admin instance
-            user = new Admin({ firstname, lastname, phone, email, password, role, status });
-        }
+        user = new User({ phone,email, password, role, status  });
+
 
         // Save the user instance
         await user.save();
@@ -36,100 +26,96 @@ async function register(req, res) {
     }
 }
 
+const generateToken = (user) => {
+    return jwt.sign({ id: user._id, email: user.email,}, process.env.JWT_SECRET, {
+        expiresIn: '1h' // Token expires in 1 hour
+    });
+};
+
 async function login(req, res) {
     try {
-        const { email, password, role } = req.body;
+        const { emailOrPhone, password } = req.body;
 
-        let user;
+        // Find the user by either email or phone number
+        const user = await User.findOne({
+            $or: [{ email: emailOrPhone }, { phone: emailOrPhone }]
+        });
 
-        // Check the role
-        if (role === 'student') {
-            user = await Student.findOne({ email });
-        } else if (role === 'instructor') {
-            user = await Instructor.findOne({ email });
-        } else {
-            user = await Admin.findOne({ email });
-        }
-
+        // Check if user exists
         if (!user) {
-            return res.status(401).json({ error: 'invalid username or password' });
+            return res.status(401).json({ error: 'Invalid email/phone or password' });
         }
 
+        // Check if the password matches (since we're not using hashing)
         if (user.password !== password) {
-            return res.status(401).json({ error: 'incorrect password' });
+            return res.status(401).json({ error: 'Incorrect password' });
         }
 
-        if (user.role !== role) {
-            return res.status(401).json({ error: 'please select the correct role' });
-        }
-
+        // Generate a JWT token (assuming generateToken is a helper function that creates a JWT token)
         const token = generateToken(user);
 
-        res.status(200).json({ message: 'login successful', token, role: user.role , firstname: user.firstname, lastname: user.lastname, phone: user.phone, email: user.email});
+        // Return success response with the token and user info
+        res.status(200).json({
+            message: 'Login successful',
+            token
+        });
     } catch (error) {
-        res.status(500).json({ error: 'login failed' });
+        console.error(error);
+        res.status(500).json({ error: 'Login failed' });
     }
-}
+};
 
-async function resetPassword(req, res) {
+async function resetPassword (req, res) {
     try {
         const { token } = req.params;
         const { newPassword } = req.body;
 
-        const decoded = jwt.verify(token, '12345');
+        // Verify the reset token
+        const decoded = jwt.verify(token, '12345678'); // Replace '12345' with your JWT secret key
 
-        let user;
-
-        // Check the role
-        if (decoded.role === 'student') {
-            user = await Student.findById(decoded.id);
-        } else if (decoded.role === 'instructor') {
-            user = await Instructor.findById(decoded.id);
-        } else {
-            user = await Admin.findById(decoded.id);
-        }
+        // Find the user by decoded ID from token
+        const user = await User.findById(decoded.id);
 
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // Update user's password
         user.password = newPassword;
+
+        // Save the updated user
         await user.save();
 
         res.status(200).json({ message: 'Password reset successful' });
     } catch (error) {
-        res.status(500).json({ error: 'Reset password failed' });
+        console.error(error);
+        res.status(500).json({ error: 'Password reset failed' });
     }
-}
+};
 
-async function forgotPassword(req, res) {
+
+async function forgotPassword (req, res) {
     try {
         const { email } = req.body;
 
-        let user;
-
         // Find the user based on email
-        user = await Student.findOne({ email });
+        const user = await User.findOne({ email });
+
         if (!user) {
-            user = await Instructor.findOne({ email });
-            if (!user) {
-                user = await Admin.findOne({ email });
-                if (!user) {
-                    return res.status(404).json({ error: 'User not found' });
-                }
-            }
+            return res.status(404).json({ error: 'User not found' });
         }
 
-        const token = jwt.sign({ id: user._id, role: user.role }, '12345', { expiresIn: '1h' });
+        // Generate reset token with JWT, signing with the user's ID and role
+        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
+        // Send the password reset email
         await sendResetEmail(user, token);
 
         res.status(200).json({ message: 'Reset email sent successfully' });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         res.status(500).json({ error: 'Forgot password failed' });
     }
-}
-
+};
 
 module.exports = { register, login, resetPassword, forgotPassword };
