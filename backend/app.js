@@ -12,6 +12,7 @@ const EnrollmentRoute=require('./routes/EnrollmentRoute');
 const contactRoutes =require('./routes/contactRoutes');
 const paymentRoute=require('./routes/paymentRoutes');
 const adminRoute =require('./routes/adminRoutes');
+const roomRoutes=require('./routes/roomRoutes')
 
 
 require('dotenv').config();
@@ -32,6 +33,7 @@ app.use(function(req, res, next) {
 
 
 app.use('/users', userRoutes);
+app.use('/rooms', roomRoutes);
 
 app.use('/courses', courseRoutes);
 app.use('/student', studentRoutes);
